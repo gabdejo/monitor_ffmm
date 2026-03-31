@@ -2,8 +2,14 @@
 .venv/
 
 # Data & database
-data/
+data/*
 *.db
+*.sqlite
+
+# But keep the folder structure
+!data/.gitkeep
+!data/raw/.gitkeep
+!data/processed/.gitkeep
 
 # Environment variables
 .env
