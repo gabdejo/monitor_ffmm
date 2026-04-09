@@ -1,14 +1,16 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import Select, WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
+
 from pathlib import Path
 import os
 import time
-import datetime
+from datetime import datetime
 
 ID_SAF = "MainContent_cboDenominacionSocial"
 ID_FONDO = "MainContent_cboFondo"
@@ -295,10 +297,13 @@ def set_date_range(driver, wait, start_date: str, end_date: str):
     hasta = safe_find(driver, By.ID, "txtFechHasta")
 
     desde.clear()
-    desde.send_keys(start_date)
+    desde.send_keys(start_date + Keys.ENTER)
 
     hasta.clear()
-    hasta.send_keys(end_date)
+    hasta.send_keys(end_date + Keys.ENTER)
+
+def dmy2ymd(str_date_dmy):
+    return str(datetime.strptime(str_date_dmy, '%d/%m/%Y').strftime('%Y-%m-%d'))
 
 def _run_extraction(
     *,
@@ -322,7 +327,10 @@ def _run_extraction(
             saf_list = get_saf_list(driver)
 
         for saf in saf_list:
-            print(f"Descargando: {saf}")
+            if fund_name:
+                print(f"Descargando: {fund_name}-{saf}")
+            else:
+                print(f"Descargando: TODOS-{saf}")
 
             select_saf(driver, saf)
 
@@ -333,6 +341,7 @@ def _run_extraction(
             select_fund(driver, fund_name)
 
             set_date_range(driver, wait, start_date, end_date)
+            file_name = f'{fund_name}_{dmy2ymd(start_date)}_{dmy2ymd(end_date)}_run{datetime.today().date()}.xls'
 
             run_search(driver, search_button_id)
 
@@ -354,7 +363,7 @@ def _run_extraction(
             
             wait_for_new_download(download_path, prev_files)
             
-            rename_new_file(download_path, prev_files, saf + '.xls')
+            rename_new_file(download_path, prev_files, file_name)
 
     finally:
         driver.quit()
