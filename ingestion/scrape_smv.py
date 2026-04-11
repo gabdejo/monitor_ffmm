@@ -8,9 +8,14 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
 
 from pathlib import Path
+from io import StringIO
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
+
+import pandas as pd
+
+from db.schema import get_connection
 
 ID_SAF = "MainContent_cboDenominacionSocial"
 ID_FONDO = "MainContent_cboFondo"
@@ -384,3 +389,71 @@ def extract_vc(
         saf_name=saf_name,
         fund_name=fund_name
     )
+
+
+def parse_and_store(xls_path: Path, fund_id: str):
+    """
+    Parse a downloaded .xls (HTML-embedded) from SMV and write to fact_fund_nav.
+    Also upserts the fund into dim_funds if not already present.
+
+    Column positions in the SMV report:
+        0  Fondo              — full display name
+        1  Fecha Información  — date (DD/MM/YYYY)  → date
+        2  Fecha Inicio       — inception date
+        3  Tipo Fondo
+        4  Valor Cuota        → nav
+        5  Patrimonio         → aum
+        6  Partícipes
+        7  Nº Cuotas          → units_outstanding
+        8  Tipo Cambio
+
+    Args:
+        xls_path: path to the downloaded .xls file
+        fund_id:  identifier used as PK in dim_funds / FK in fact_fund_nav
+    """
+    with open(xls_path, encoding="latin-1") as f:
+        content = f.read()
+
+    df = pd.read_html(StringIO(content))[0]
+
+    # Fund metadata from first row
+    fund_display_name = df.iloc[0, 0]
+    inception_str = df.iloc[0, 2]
+    currency = "USD" if "DOLARES" in str(fund_display_name).upper() else "PEN"
+    inception_date = datetime.strptime(inception_str, "%d/%m/%Y").strftime("%Y-%m-%d")
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO dim_funds (fund_id, fund_name, currency, inception_date)
+            VALUES (?, ?, ?, ?)
+            """,
+            (fund_id, fund_display_name, currency, inception_date),
+        )
+
+        ingested_at = datetime.now(timezone.utc).isoformat()
+        rows = [
+            (
+                fund_id,
+                datetime.strptime(str(row.iloc[1]), "%d/%m/%Y").strftime("%Y-%m-%d"),
+                float(row.iloc[4]),
+                float(row.iloc[5]),
+                float(row.iloc[7]),
+                ingested_at,
+            )
+            for _, row in df.iterrows()
+        ]
+
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO fact_fund_nav
+                (fund_id, date, nav, aum, units_outstanding, ingested_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        conn.commit()
+        print(f"  {len(rows)} rows written for {fund_id}")
+    finally:
+        conn.close()

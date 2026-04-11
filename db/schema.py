@@ -98,5 +98,27 @@ def create_schema():
     print(f"Schema created successfully at: {DB_PATH}")
 
 
+def seed_fund_benchmark(fund_ids: list[str], etf_tickers: list[str]):
+    """
+    Upsert fund→ETF benchmark mappings from env-var config.
+    Safe to call on every ingestion run — INSERT OR IGNORE skips existing rows.
+    Must be called after dim_funds and dim_etfs are already populated.
+    """
+    conn = get_connection()
+    try:
+        for fund_id, ticker in zip(fund_ids, etf_tickers):
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO dim_fund_benchmark (fund_id, ticker)
+                VALUES (?, ?)
+                """,
+                (fund_id, ticker),
+            )
+        conn.commit()
+        print(f"Seeded {len(fund_ids)} fund-benchmark mapping(s)")
+    finally:
+        conn.close()
+
+
 if __name__ == "__main__":
     create_schema()
