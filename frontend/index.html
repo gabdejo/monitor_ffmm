@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fund Dashboard</title>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0f1117;
+      --surface: #1a1d27;
+      --border:  #2a2d3e;
+      --text:    #e2e4ed;
+      --muted:   #7b7f96;
+      --accent:  #6c63ff;
+      --pos:     #3dd68c;
+      --neg:     #f16565;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      padding: 20px 32px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    header h1 { font-size: 18px; font-weight: 600; letter-spacing: -.3px; }
+    header .subtitle { color: var(--muted); font-size: 13px; }
+    .last-updated { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+    /* ── Layout ── */
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 28px 32px 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 18px 24px 0;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .card-title { font-size: 15px; font-weight: 600; }
+
+    /* ── Range buttons ── */
+    .controls-row {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .btn-group { display: flex; }
+    .btn-group button {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 5px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: color .15s, background .15s, border-color .15s;
+    }
+    .btn-group button:first-child { border-radius: 6px 0 0 6px; }
+    .btn-group button:last-child  { border-radius: 0 6px 6px 0; }
+    .btn-group button:not(:first-child) { border-left: none; }
+    .btn-group button.active,
+    .btn-group button:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    /* ── Custom date range ── */
+    .date-range {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .date-range input[type="date"] {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      color-scheme: dark;
+    }
+    .date-range input[type="date"]:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .date-range span { color: var(--muted); font-size: 12px; }
+    .date-range button {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: color .15s, background .15s, border-color .15s;
+    }
+    .date-range button:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    /* ── Chart ── */
+    #wealth-chart { width: 100%; height: 420px; }
+
+    /* ── Returns table ── */
+    .table-wrap {
+      overflow-x: auto;
+      padding: 16px 24px 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    thead th {
+      text-align: right;
+      padding: 8px 12px;
+      color: var(--muted);
+      font-weight: 500;
+      border-bottom: 1px solid var(--border);
+    }
+    thead th:first-child,
+    thead th:nth-child(2) { text-align: left; }
+    tbody tr:hover { background: rgba(255,255,255,.03); }
+    tbody tr.benchmark-row td { color: var(--muted); font-size: 12px; }
+    tbody tr.separator td { border-top: 1px solid var(--border); padding-top: 10px; }
+    td { padding: 8px 12px; text-align: right; }
+    td:first-child, td:nth-child(2) { text-align: left; }
+
+    /* ── Misc ── */
+    .pos { color: var(--pos); }
+    .neg { color: var(--neg); }
+    .color-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+    .state-msg { padding: 48px; text-align: center; color: var(--muted); }
+    .error { color: var(--neg); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Fund Dashboard</h1>
+    <div class="subtitle">Mutual funds vs ETF benchmarks</div>
+  </div>
+  <div class="last-updated" id="last-updated"></div>
+</header>
+
+<main>
+
+  <!-- Wealth curve -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Wealth Curve (index 100)</span>
+      <div class="controls-row">
+        <div class="btn-group" id="range-btns">
+          <button data-range="mtd">MTD</button>
+          <button data-range="ytd">YTD</button>
+          <button data-months="3">3M</button>
+          <button data-months="6">6M</button>
+          <button data-months="12">1Y</button>
+          <button data-months="36">3Y</button>
+          <button data-months="0" class="active">All</button>
+        </div>
+        <div class="date-range">
+          <input type="date" id="date-from" title="From" />
+          <span>–</span>
+          <input type="date" id="date-to" title="To" />
+          <button id="date-apply">Go</button>
+        </div>
+      </div>
+    </div>
+    <div id="wealth-chart"><div class="state-msg">Loading…</div></div>
+  </div>
+
+  <!-- Returns table -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Returns</span>
+    </div>
+    <div class="table-wrap">
+      <div id="returns-table"><div class="state-msg">Loading…</div></div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+const API_BASE = '/api';
+
+const PALETTE = [
+  '#6c63ff','#36c9c6','#f9b74b','#e05c9b','#4ea8de',
+  '#a8d86e','#ff8a5c','#c084fc','#60cfb0','#f4d44d',
+];
+
+// fundColorMap: key → { color, label, isEtf }
+let fundColorMap = {};
+
+// ---------------------------------------------------------------------------
+// Formatting
+// ---------------------------------------------------------------------------
+function fmtPct(v) {
+  if (v == null) return '—';
+  const s = (v * 100).toFixed(2) + '%';
+  return v >= 0
+    ? `<span class="pos">+${s}</span>`
+    : `<span class="neg">${s}</span>`;
+}
+
+function monthLabel(isoDate) {
+  const d = new Date(isoDate + 'T00:00:00');
+  return d.toLocaleString('default', { month: 'short', year: '2-digit' });
+}
+
+function monthsAgoDate(n) {
+  if (n === 0) return null;
+  const d = new Date();
+  d.setMonth(d.getMonth() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+function mtdStartDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+function ytdStartDate() {
+  return `${new Date().getFullYear()}-01-01`;
+}
+
+function isoDate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
+// ---------------------------------------------------------------------------
+// API
+// ---------------------------------------------------------------------------
+async function fetchJson(path) {
+  const res = await fetch(API_BASE + path);
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Wealth curve
+// ---------------------------------------------------------------------------
+function renderWealthChart(data) {
+  const el = document.getElementById('wealth-chart');
+
+  if (!data || !data.dates || data.dates.length === 0) {
+    el.innerHTML = '<div class="state-msg">No data available.</div>';
+    return;
+  }
+
+  const traces = [];
+
+  for (const [key, values] of Object.entries(data.series)) {
+    const entry = fundColorMap[key] || {};
+    const isEtf  = entry.isEtf  ?? false;
+    const color  = entry.color  ?? '#888';
+    const label  = entry.label  ?? key;
+
+    traces.push({
+      x: data.dates,
+      y: values,
+      name: label,
+      type: 'scatter',
+      mode: 'lines',
+      line: { color, width: isEtf ? 1.5 : 2, dash: isEtf ? 'dot' : 'solid' },
+      hovertemplate: `<b>${label}</b><br>%{x}<br>%{y:.2f}<extra></extra>`,
+    });
+  }
+
+  const layout = {
+    paper_bgcolor: 'transparent',
+    plot_bgcolor:  'transparent',
+    margin: { t: 16, r: 24, b: 52, l: 52 },
+    xaxis: {
+      color: '#7b7f96', gridcolor: '#1e2130',
+      tickfont: { size: 11 }, showline: false,
+    },
+    yaxis: {
+      color: '#7b7f96', gridcolor: '#1e2130',
+      tickfont: { size: 11 }, zeroline: false, tickformat: '.1f',
+    },
+    legend: {
+      font: { color: '#e2e4ed', size: 11 },
+      bgcolor: 'transparent',
+      orientation: 'h', y: -0.2, x: 0,
+    },
+    hovermode: 'x unified',
+    hoverlabel: {
+      bgcolor: '#1a1d27', bordercolor: '#2a2d3e',
+      font: { color: '#e2e4ed', size: 12 },
+    },
+  };
+
+  const config = {
+    responsive: true,
+    displaylogo: false,
+    modeBarButtonsToRemove: ['select2d','lasso2d','autoScale2d','toImage'],
+  };
+
+  // Clear previous loading message then plot
+  el.innerHTML = '';
+  Plotly.newPlot('wealth-chart', traces, layout, config);
+}
+
+async function loadAndRenderChart(startDate, endDate = null) {
+  const el = document.getElementById('wealth-chart');
+  el.innerHTML = '<div class="state-msg">Loading…</div>';
+  try {
+    const params = new URLSearchParams();
+    if (startDate) params.set('start_date', startDate);
+    if (endDate)   params.set('end_date',   endDate);
+    const qs  = params.toString();
+    const url = qs ? `/wealth-curve?${qs}` : '/wealth-curve';
+    const data = await fetchJson(url);
+    renderWealthChart(data);
+    return data;
+  } catch (err) {
+    el.innerHTML = `<div class="state-msg error">Error: ${err.message}</div>`;
+    return null;
+  }
+}
+
+function clearActiveBtn() {
+  document.querySelectorAll('#range-btns button').forEach(b => b.classList.remove('active'));
+}
+
+document.getElementById('range-btns').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  clearActiveBtn();
+  btn.classList.add('active');
+
+  if (btn.dataset.range === 'mtd') {
+    loadAndRenderChart(mtdStartDate());
+  } else if (btn.dataset.range === 'ytd') {
+    loadAndRenderChart(ytdStartDate());
+  } else {
+    const months = parseInt(btn.dataset.months, 10);
+    loadAndRenderChart(monthsAgoDate(months));
+  }
+});
+
+document.getElementById('date-apply').addEventListener('click', () => {
+  const from = document.getElementById('date-from').value;
+  const to   = document.getElementById('date-to').value;
+  if (!from) return;
+  clearActiveBtn();
+  loadAndRenderChart(from, to || null);
+});
+
+// ---------------------------------------------------------------------------
+// Returns table
+// ---------------------------------------------------------------------------
+function buildReturnsTable(returns) {
+  if (!returns || returns.length === 0) {
+    return '<div class="state-msg">No returns data available.</div>';
+  }
+
+  // Collect last 12 completed months across all rows
+  const monthSet = new Set();
+  for (const row of returns) {
+    Object.keys(row.fund?.monthly      || {}).forEach(m => monthSet.add(m));
+    Object.keys(row.benchmark?.monthly || {}).forEach(m => monthSet.add(m));
+  }
+  const months = Array.from(monthSet).sort().slice(-12);
+
+  const monthHeaders = months.map(m =>
+    `<th title="${m}">${monthLabel(m)}</th>`
+  ).join('');
+
+  let html = `
+    <table>
+      <thead>
+        <tr>
+          <th>Fund</th>
+          <th>Benchmark</th>
+          <th>MTD</th>
+          <th>YTD</th>
+          ${monthHeaders}
+        </tr>
+      </thead>
+      <tbody>`;
+
+  for (let i = 0; i < returns.length; i++) {
+    const row   = returns[i];
+    const entry = fundColorMap[row.fund_id] || {};
+    const color = entry.color ?? PALETTE[i % PALETTE.length];
+    const dot   = `<span class="color-dot" style="background:${color}"></span>`;
+    const sep   = i > 0 ? ' class="separator"' : '';
+
+    const fundMos = months.map(m =>
+      `<td>${fmtPct(row.fund?.monthly?.[m])}</td>`
+    ).join('');
+    const bmMos = months.map(m =>
+      `<td>${fmtPct(row.benchmark?.monthly?.[m])}</td>`
+    ).join('');
+
+    html += `
+      <tr${sep}>
+        <td>${dot}${row.fund_name}</td>
+        <td>${row.ticker}</td>
+        <td>${fmtPct(row.fund?.mtd)}</td>
+        <td>${fmtPct(row.fund?.ytd)}</td>
+        ${fundMos}
+      </tr>
+      <tr class="benchmark-row">
+        <td style="padding-left:22px">${row.ticker} (benchmark)</td>
+        <td></td>
+        <td>${fmtPct(row.benchmark?.mtd)}</td>
+        <td>${fmtPct(row.benchmark?.ytd)}</td>
+        ${bmMos}
+      </tr>`;
+  }
+
+  html += '</tbody></table>';
+  return html;
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap
+// ---------------------------------------------------------------------------
+async function init() {
+  // 1. Fund metadata → color map
+  try {
+    const funds = await fetchJson('/funds');
+    funds.forEach((f, i) => {
+      const color = PALETTE[i % PALETTE.length];
+      fundColorMap[f.fund_id] = { color, label: f.fund_name, isEtf: false };
+      if (f.ticker) {
+        fundColorMap[f.ticker] = { color, label: f.ticker, isEtf: true };
+      }
+    });
+  } catch (err) {
+    console.warn('Could not load /funds:', err.message);
+  }
+
+  // 2. Wealth curve (all history)
+  const chartData = await loadAndRenderChart(null);
+  if (chartData?.dates?.length) {
+    document.getElementById('last-updated').textContent =
+      'Last data: ' + chartData.dates[chartData.dates.length - 1];
+  }
+
+  // 3. Returns table
+  try {
+    const returns = await fetchJson('/returns');
+    document.getElementById('returns-table').innerHTML = buildReturnsTable(returns);
+  } catch (err) {
+    document.getElementById('returns-table').innerHTML =
+      `<div class="state-msg error">Error: ${err.message}</div>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>

@@ -79,7 +79,10 @@ def get_funds():
 
 
 @router.get("/wealth-curve")
-def get_wealth_curve(start_date: str | None = Query(default=None)):
+def get_wealth_curve(
+    start_date: str | None = Query(default=None),
+    end_date:   str | None = Query(default=None),
+):
     """
     Rebased index-100 wealth curves for all funds and their ETF benchmarks.
 
@@ -87,6 +90,7 @@ def get_wealth_curve(start_date: str | None = Query(default=None)):
         start_date: YYYY-MM-DD anchor date. Defaults to the latest common
                     first date across all series so every line starts at 100
                     on the same day.
+        end_date:   YYYY-MM-DD cutoff (inclusive). Defaults to latest available.
 
     Response:
         {
@@ -105,15 +109,20 @@ def get_wealth_curve(start_date: str | None = Query(default=None)):
     finally:
         conn.close()
 
-    anchor = pd.Timestamp(start_date) if start_date else None
-    df = align_and_rebase({**fund_nav, **etf_prices}, start_date=anchor)
+    anchor  = pd.Timestamp(start_date) if start_date else None
+    end_ts  = pd.Timestamp(end_date)   if end_date   else None
+    df = align_and_rebase({**fund_nav, **etf_prices}, start_date=anchor, end_date=end_ts)
 
     if df.empty:
         return {"dates": [], "series": {}}
 
+    def _safe_list(col):
+        return [None if (v != v or v == float("inf") or v == float("-inf")) else round(v, 4)
+                for v in df[col]]
+
     return {
         "dates": [str(d.date()) for d in df.index],
-        "series": {col: df[col].round(4).tolist() for col in df.columns},
+        "series": {col: _safe_list(col) for col in df.columns},
     }
 
 
